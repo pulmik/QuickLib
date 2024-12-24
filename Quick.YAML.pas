@@ -1,4 +1,4 @@
-{ ***************************************************************************
+﻿{ ***************************************************************************
 
   Copyright (c) 2015-2022 Kike P�rez
 
@@ -225,16 +225,19 @@ type
       property Current: TYamlValue read GetCurrent;
     end;
   private
+    fIsScalarArray: Boolean;
     fElements: TList<TYamlValue>;
-    function ParseToYaml(aIndent : Integer; var vIsScalar : Boolean) : string;
+    function ParseToYaml(aIndent : Integer) : string;
   protected
     procedure AddDescendant(const aDescendant: TYamlAncestor); override;
     function GetCount: Integer; inline;
     function GetValue(const aIndex: Integer): TYamlValue; overload; inline;
   public
     constructor Create; overload;
-    constructor Create(const aFirstElem: TYamlValue); overload;
+    constructor Create(const aIsScalarArray: Boolean); overload;
+    constructor Create(const aIsScalarArray: Boolean; const aFirstElem: TYamlValue); overload;
     destructor Destroy; override;
+    property IsScalarArray: Boolean read fIsScalarArray;
     property Count: Integer read GetCount;
     property Items[const aIndex: Integer]: TYamlValue read GetValue;
     procedure AddElement(const aElement: TYamlValue);
@@ -288,7 +291,7 @@ end;
 
 procedure TYamlObject.AddDescendant(const aDescendent: TYamlAncestor);
 begin
-  if aDescendent <> nil then fMembers.Add(TYamlPair(aDescendent));
+  if aDescendent <> nil then fMembers.Add(aDescendent as TYamlPair);
 end;
 
 function TYamlObject.AddPair(const aName, aValue: string): TYamlObject;
@@ -434,28 +437,39 @@ begin
   while yaml.Count > vIndex do
   begin
     value := yaml[vIndex].Trim;
+    //if value.StartsWith('#') then Exit(TYamlComment.Create(value));
+    if (value.IsEmpty) or (value.StartsWith('#')) or (value.StartsWith(#9)) then
+      Exit(nil);
 
     name := ParsePairName(value);
-    if (name.IsEmpty) or (value.IsEmpty) or (value.StartsWith('#')) or (value.StartsWith(#9)) then Exit(nil)
-    //else if value.StartsWith('#') then Exit(TYamlComment.Create(value))
-    else if value.StartsWith('-') then
+    if value.StartsWith('- ') then
     begin
-      yaml[vIndex] := StringReplace(yaml[vIndex],'-','',[]).TrimLeft;
+      if name.IsEmpty then
+        Exit(ParseArrayValue(value.Substring(2).TrimLeft));
+      name := name.Substring(2).TrimLeft;
+      yaml[vIndex] := StringReplace(yaml[vIndex],'- ','  ',[]);
       yamlType := ytObject;
       Dec(vIndex);
     end
-    else if value.EndsWith(':') then
+    else
+    if value.EndsWith(':') then
     begin
-      if yaml[vIndex + 1].TrimLeft.StartsWith('-') then yamlType := ytArray
-        else yamlType := ytObject;
+      if yaml[vIndex + 1].TrimLeft.StartsWith('-') then
+        yamlType := ytArray
+      else
+        yamlType := ytObject;
     end
-    else if value.IndexOf(':') < value.Length then
+    else
+    if value.IndexOf(':') < value.Length then
     begin
       value := ParsePairValue(value);
-      if (value.StartsWith('[')) and (value.EndsWith(']')) then yamlType := ytScalarArray
-        else yamlType := ytScalar;
+      if (value.StartsWith('[')) and (value.EndsWith(']')) then
+        yamlType := ytScalarArray
+      else
+        yamlType := ytScalar;
     end
-    else yamlType := TYamlType.ytScalar;
+    else
+      yamlType := TYamlType.ytScalar;
 
     case yamlType of
       ytArray : //is array
@@ -484,7 +498,7 @@ begin
         end;
       ytScalarArray : //is scalar array
         begin
-          yvalue := TYamlArray.Create;
+          yvalue := TYamlArray.Create(True);
           value := StringReplace(Copy(value,2,Value.Length-2),', ',#9,[rfReplaceAll]);
           for aitem in value.Split([#9]) do
           begin
@@ -492,7 +506,8 @@ begin
           end;
           Exit(TYamlPair.Create(name,TYamlValue(yvalue)));
         end;
-    else Exit(TYamlPair.Create(name,value)); //is scalar
+      else
+        Exit(TYamlPair.Create(name,value)); //is scalar
     end;
     Inc(vIndex);
   end;
@@ -530,7 +545,7 @@ end;
 class function TYamlObject.ParseYamlValue(const aData : string) : TYamlAncestor;
 var
   yaml : TList<string>;
-  line : string;
+  line, sub_line : string;
   data : string;
   yamlvalue : TYamlAncestor;
   vIndex : Integer;
@@ -540,17 +555,22 @@ begin
     vIndex := 0;
     //normalize tabs
     data := StringReplace(aData,#9,Spaces(NUM_INDENT),[rfReplaceAll]);
+
     {$IFDEF MSWINDOWS}
     for line in data.Split([#13]) do yaml.Add(StringReplace(line,#10,'',[rfReplaceAll]));
     {$ELSE}
     for line in data.Split([#10]) do yaml.Add(StringReplace(line,#13,'',[rfReplaceAll]));
     {$ENDIF}
-    if yaml[0].TrimLeft.StartsWith('- ') then Result := TYamlArray.Create
-      else Result := TYamlObject.Create;
+
+    if yaml[0].TrimLeft.StartsWith('- ') then
+      Result := TYamlArray.Create
+    else
+      Result := TYamlObject.Create;
     while yaml.Count > vIndex do
     begin
       yamlvalue := ParseValue(yaml,vIndex);
-      if yamlvalue <> nil then Result.AddDescendant(yamlvalue);
+      if yamlvalue <> nil then
+        Result.AddDescendant(yamlvalue);
       Inc(vIndex);
     end;
   finally
@@ -593,7 +613,6 @@ var
   yaml : TYamlWriter;
   yvalue : TYamlAncestor;
   indent : string;
-  isscalar : Boolean;
   scalar : string;
   rarray : string;
 begin
@@ -625,13 +644,12 @@ begin
       begin
         yaml.Writeln(Format('%s%s:',[indent,member.Name]));
         yaml.Write((yvalue as TYamlObject).ParseToYaml(aIndent + NUM_INDENT));
-        if aIndent = 0 then yaml.Writeln('');
+        //if aIndent = 0 then yaml.Writeln('');
       end
       else if (yvalue is TYamlArray) then
       begin
-        isscalar := False;
-        rarray := (yvalue as TYamlArray).ParseToYaml(aIndent + NUM_INDENT,isscalar);
-        if isscalar then yaml.Writeln(Format('%s%s: %s',[indent,member.Name,rarray]))
+        rarray := (yvalue as TYamlArray).ParseToYaml(aIndent + NUM_INDENT);
+        if (yvalue as TYamlArray).IsScalarArray then yaml.Writeln(Format('%s%s: %s',[indent,member.Name,rarray]))
         else
         begin
           yaml.Writeln(Format('%s%s:',[indent,member.Name]));
@@ -787,15 +805,16 @@ begin
 end;
 
 function TYamlPair.ToYaml: string;
-var
-  isscalar : Boolean;
 begin
   if fValue = nil then Exit('null');
 
-  if fValue is TYamlObject then Result := TYamlObject(fValue).ToYaml
-    else if fValue is TYamlArray then Result := TYamlArray(fValue).ParseToYaml(0,isscalar)
-      else Result := Format('%s: %s',[fName,fValue.Value.AsString]);
-
+  if fValue is TYamlObject then
+    Result := TYamlObject(fValue).ToYaml
+  else
+  if fValue is TYamlArray then
+    Result := TYamlArray(fValue).ParseToYaml(0)
+  else
+    Result := Format('%s: %s',[fName,fValue.Value.AsString]);
 end;
 
 procedure TYamlPair.AddDescendant(const aDescendent: TYamlAncestor);
@@ -867,19 +886,29 @@ end;
 
 procedure TYamlArray.AddDescendant(const aDescendant: TYamlAncestor);
 begin
-  fElements.Add(TYamlValue(aDescendant));
+  if aDescendant is TYamlValue then
+    fElements.Add(aDescendant as TYamlValue)
+  else
+  if aDescendant is TYamlPair then
+    fElements.Add((aDescendant as TYamlPair).Value)
+end;
+
+constructor TYamlArray.Create(const aIsScalarArray: Boolean);
+begin
+  inherited Create;
+  fIsScalarArray := aIsScalarArray;
+  fElements := TList<TYamlValue>.Create;
+end;
+
+constructor TYamlArray.Create(const aIsScalarArray: Boolean; const aFirstElem: TYamlValue);
+begin
+  Create(aIsScalarArray);
+  AddElement(aFirstElem);
 end;
 
 constructor TYamlArray.Create;
 begin
-  inherited Create;
-  fElements := TList<TYamlValue>.Create;
-end;
-
-constructor TYamlArray.Create(const aFirstElem: TYamlValue);
-begin
-  inherited Create;
-  AddElement(aFirstElem);
+  Create(False);
 end;
 
 procedure TYamlArray.AddElement(const aElement: TYamlValue);
@@ -931,13 +960,12 @@ begin
   Result := fElements[aIndex];
 end;
 
-function TYamlArray.ParseToYaml(aIndent : Integer; var vIsScalar : Boolean) : string;
+function TYamlArray.ParseToYaml(aIndent : Integer) : string;
 var
   element : TYamlValue;
   yaml : TYamlWriter;
   yvalue : TYamlAncestor;
   indent : string;
-  isscalar : Boolean;
 begin
   Result := '';
   yvalue := nil;
@@ -946,8 +974,10 @@ begin
     indent := StringOfChar(' ',aIndent);
     if fElements.Count = 0 then
     begin
-      vIsScalar := True;
-      Exit('[]');
+      if IsScalarArray then
+        Exit('[]')
+      else
+        Exit('');
     end;
     for element in fElements do
     begin
@@ -956,13 +986,21 @@ begin
 
       if yvalue.IsScalar then
       begin
-        {$IFNDEF FPC}
-        if Result = '' then Result := element.AsString
-          else Result := Result + ', ' + element.AsString;
-        {$ELSE}
-        if Result = '' then Result := TYamlPair(element).Value.AsString
-          else Result := Result + ', ' + TYamlPair(element).Value.AsString;
-        {$ENDIF}
+        if IsScalarArray then
+        begin
+          {$IFNDEF FPC}
+          if Result = '' then Result := element.AsString
+            else Result := Result + ', ' + element.AsString;
+          {$ELSE}
+          if Result = '' then Result := TYamlPair(element).Value.AsString
+            else Result := Result + ', ' + TYamlPair(element).Value.AsString;
+          {$ENDIF}
+        end
+        else
+        begin
+          yaml.Write(Format('%s- %s',[indent, element.AsString]));
+          yaml.Writeln('');
+        end;
       end
       else if (yvalue is TYamlObject) then
       begin
@@ -970,16 +1008,14 @@ begin
       end
       else if (yvalue is TYamlArray) then
       begin
-        yaml.Write(Format('%s%s',[indent,(yvalue as TYamlArray).ParseToYaml(aIndent + NUM_INDENT,isscalar)]))
+        yaml.Write(Format('%s%s',[indent,(yvalue as TYamlArray).ParseToYaml(aIndent + NUM_INDENT)]))
       end;
-      yaml.Writeln('');
+      //yaml.Writeln('');
     end;
-    if (yvalue <> nil) and (yvalue.IsScalar) then
-    begin
-      Result := '[' + Result + ']';
-      vIsScalar := True;
-    end
-    else Result := yaml.Text;
+    if IsScalarArray then
+      Result := '[' + Result + ']'
+    else
+      Result := yaml.Text;
   finally
     yaml.Free;
   end;
@@ -1086,7 +1122,7 @@ end;
 
 function TYamlComment.Value: TFlexValue;
 begin
-
+  Result := fValue;
 end;
 
 end.
