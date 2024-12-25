@@ -192,9 +192,9 @@ begin
     TValue.Make(@pArr,aTypeInfo, Result);
     rDynArray := ctx.GetType(Result.TypeInfo) as TRTTIDynamicArrayType;
 
-    try
-      for i := 0 to aYamlArray.Count - 1 do
-      begin
+    for i := 0 to aYamlArray.Count - 1 do
+    begin
+      try
         rItemValue := nil;
         case rType.Kind of
           tkClass :
@@ -232,11 +232,11 @@ begin
           end;
         end;
         if not rItemValue.IsEmpty then Result.SetArrayElement(i,rItemValue);
-      end;
-    except
-      on E : Exception do
-      begin
-        raise Exception.CreateFmt('Array %s item %d error (%s)',[rtype.Name, i, e.Message]);
+      except
+        on E : Exception do
+        begin
+          raise Exception.CreateFmt('Array %s item %d error (%s)',[rtype.Name, i, e.Message]);
+        end;
       end;
     end;
     //aProperty.SetValue(aObject,rValue);
