@@ -417,7 +417,12 @@ end;
 
 class function TYamlObject.ParsePairValue(const aPair: string): string;
 begin
-  Result := AnsiDequotedStr(Copy(aPair,aPair.IndexOf(':')+2,aPair.Length).Trim, '"');
+  Result := Copy(aPair,aPair.IndexOf(':')+2,aPair.Length).Trim;
+  if Result.StartsWith('"') then
+    Result := AnsiDequotedStr(Result, '"')
+  else
+  if Result.StartsWith('''') then
+    Result := AnsiDequotedStr(Result, '''');
 end;
 
 class function TYamlObject.ParseValue(yaml : TList<string>; var vIndex : Integer): TYamlAncestor;
