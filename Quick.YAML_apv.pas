@@ -1,0 +1,1318 @@
+﻿{ ***************************************************************************
+
+  Copyright (c) 2015-2026 Kike Perez
+
+  Unit        : Quick.YAML
+  Description : YAML Object parser
+  Author      : Kike Perez
+  Version     : 1.2
+  Created     : 17/04/2019
+  Modified    : 01/05/2026
+
+  This file is part of QuickLib: https://github.com/exilon/QuickLib
+
+ ***************************************************************************
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+
+ *************************************************************************** }
+
+unit Quick.YAML;
+
+{$i QuickLib.inc}
+
+interface
+
+uses
+  Classes,
+  SysUtils,
+  Quick.Commons,
+  Generics.Collections,
+  Quick.Value;
+
+type
+  TYamlScalar = TFlexValue;
+
+  TYamlAncestor = class abstract
+  protected
+    fOwned : Boolean;
+    function IsNull : Boolean; virtual;
+    procedure AddDescendant(const aDescendent: TYamlAncestor); virtual;
+  public
+    constructor Create;
+    property Owned : Boolean read fOwned write fOwned;
+    property Null : Boolean read IsNull;
+    function IsScalar : Boolean; virtual;
+  end;
+
+  TYamlValue = class abstract(TYamlAncestor)
+  public
+    function Value : TFlexValue; virtual;
+    function AsString : string; virtual; abstract;
+  end;
+
+  TYamlString = class(TYamlValue)
+  private
+    fValue : string;
+    fIsNull : Boolean;
+  protected
+    function IsNull : Boolean; override;
+  public
+    constructor Create; overload;
+    constructor Create(const aValue : string); overload;
+    function Value : TFlexValue; override;
+    function IsScalar : Boolean; override;
+    function AsString : string; override;
+  end;
+
+  TYamlInteger = class(TYamlValue)
+  private
+    fValue : Integer;
+    fIsNull : Boolean;
+  protected
+    function IsNull : Boolean; override;
+  public
+    constructor Create; overload;
+    constructor Create(const aValue : Integer); overload;
+    function Value : TFlexValue; override;
+    function IsScalar : Boolean; override;
+    function AsString : string; override;
+  end;
+
+  TYamlFloat = class(TYamlValue)
+  private
+    fValue : Double;
+    fIsNull : Boolean;
+  protected
+    function IsNull : Boolean; override;
+  public
+    constructor Create; overload;
+    constructor Create(const aValue : Double); overload;
+    function Value : TFlexValue; override;
+    function IsScalar : Boolean; override;
+    function AsString : string; override;
+  end;
+
+  TYamlBoolean = class(TYamlValue)
+  private
+    fValue : Boolean;
+    fIsNull : Boolean;
+  protected
+    function IsNull : Boolean; override;
+  public
+    constructor Create; overload;
+    constructor Create(const aValue : Boolean); overload;
+    function Value : TFlexValue; override;
+    function IsScalar : Boolean; override;
+    function AsString : string; override;
+  end;
+
+  TYamlNull = class(TYamlValue)
+  protected
+    function IsNull: Boolean; override;
+  public
+    function Value : TFlexValue; override;
+    function AsString : string; override;
+  end;
+
+  TYamlComment = class(TYamlValue)
+  private
+    fValue : string;
+    fIsNull : Boolean;
+  protected
+    function IsNull : Boolean; override;
+  public
+    constructor Create; overload;
+    constructor Create(const aComment : string); overload;
+    function Value : TFlexValue; override;
+    function IsScalar : Boolean; override;
+    function AsString : string; override;
+  end;
+
+  TYamlPair = class(TYamlAncestor)
+  private
+    fName : string;
+    fValue : TYamlValue;
+  protected
+    procedure AddDescendant(const aDescendent: TYamlAncestor); override;
+  public
+    constructor Create(const aName : string; const aValue : TYamlValue); overload;
+    constructor Create(const aName : string; const aValue : string); overload;
+    constructor Create(const aName : string; const aValue : Integer); overload;
+    constructor Create(const aName : string; const aValue : Double); overload;
+    destructor Destroy; override;
+    property Name : string read fName write fName;
+    property Value : TYamlValue read fValue write fValue;
+    function ToYaml : string;
+  end;
+
+  TYamlWriter = class
+  private
+    fData : string;
+  public
+    constructor Create;
+    property Text : string read fData;
+    procedure Write(const aValue : string);
+    procedure Writeln(const aValue : string);
+  end;
+
+  TYamlObject = class(TYamlValue)
+  public type
+    TEnumerator = class
+    private
+      fIndex: Integer;
+      fObject: TYamlObject;
+    public
+      constructor Create(const aObject: TYamlObject);
+      function GetCurrent: TYamlPair; inline;
+      function MoveNext: Boolean; inline;
+      property Current: TYamlPair read GetCurrent;
+    end;
+  private
+    fMembers : TList<TYamlPair>;
+    function GetCount : Integer;
+    class function ParseValue(yaml : TList<string>; var vIndex : Integer): TYamlAncestor;
+    class function ParsePairName(const aPair : string) : string;
+    class function ParsePairValue(const aPair : string) : string;
+    class function ParseArrayValue(const aValue : string) : TYamlValue;
+    class function GetItemLevel(const aValue : string) : Integer;
+    class function DecodeYamlEscapes(const aValue : string) : string;
+    function ParseToYaml(aIndent : Integer) : string;
+  protected
+    procedure AddDescendant(const aDescendent: TYamlAncestor); override;
+  public
+    constructor Create; overload;
+    constructor Create(const aData : string); overload;
+    destructor Destroy; override;
+    function GetValue(const aName: string): TYamlValue;
+    property Values[const aName: string] : TYamlValue read GetValue;
+    procedure ParseYaml(const aData : string);
+    property Count : Integer read GetCount;
+    class function ParseYamlValue(const aData : string) : TYamlAncestor;
+    function GetPair(const aIndex : Integer) : TYamlPair;
+    function GetPairByName(const aPairName : string) : TYamlPair;
+    function AddPair(const aPair : TYamlPair): TYamlObject; overload;
+    function AddPair(const aName : string; const aValue : TYamlValue): TYamlObject; overload;
+    function AddPair(const aName : string; const aValue : string): TYamlObject; overload;
+    function AddPair(const aName : string; aValue: Integer): TYamlObject; overload;
+    function AddPair(const aName : string; aValue: double): TYamlObject; overload;
+    function AddPair(const aName : string; aValue: boolean): TYamlObject; overload;
+    function RemovePair(const aPairName: string): TYamlPair;
+    function GetEnumerator: TEnumerator; inline;
+    property Pairs[const aIndex: Integer]: TYamlPair read GetPair;
+    function ToYaml : string;
+    function AsString : string; override;
+  end;
+
+  { TYamlArray }
+
+  TYamlArray = class(TYamlValue)
+  public type
+    TEnumerator = class
+    private
+      fIndex : Integer;
+      fArray : TYamlArray;
+    public
+      constructor Create(const aArray: TYamlArray);
+      function GetCurrent: TYamlValue; inline;
+      function MoveNext: Boolean; inline;
+      property Current: TYamlValue read GetCurrent;
+    end;
+  private
+    fIsScalarArray: Boolean;
+    fElements: TList<TYamlValue>;
+    function ParseToYaml(aIndent : Integer) : string;
+  protected
+    procedure AddDescendant(const aDescendant: TYamlAncestor); override;
+    function GetCount: Integer; inline;
+    function GetValue(const aIndex: Integer): TYamlValue; overload; inline;
+  public
+    constructor Create; overload;
+    constructor Create(const aIsScalarArray: Boolean); overload;
+    constructor Create(const aIsScalarArray: Boolean; const aFirstElem: TYamlValue); overload;
+    destructor Destroy; override;
+    property IsScalarArray: Boolean read fIsScalarArray;
+    property Count: Integer read GetCount;
+    property Items[const aIndex: Integer]: TYamlValue read GetValue;
+    procedure AddElement(const aElement: TYamlValue);
+    function GetEnumerator: TEnumerator; inline;
+    function AsString : string; override;
+  end;
+
+  EYAMLException = class(Exception);
+
+implementation
+
+const
+  NUM_INDENT = 2;
+
+{ TYamlAncestor }
+
+procedure TYamlAncestor.AddDescendant(const aDescendent: TYamlAncestor);
+begin
+  raise EYAMLException.CreateFmt('Cannot add value %s to %s',[aDescendent.ClassName,ClassName]);
+end;
+
+constructor TYamlAncestor.Create;
+begin
+  inherited Create;
+  fOwned := True;
+end;
+
+function TYamlAncestor.IsNull: Boolean;
+begin
+  Result := False;
+end;
+
+function TYamlAncestor.IsScalar: Boolean;
+begin
+  Result := False;
+end;
+
+{ TYamlObject }
+
+function TYamlObject.AddPair(const aPair: TYamlPair): TYamlObject;
+begin
+  if aPair <> nil then AddDescendant(aPair);
+  Result := Self;
+end;
+
+function TYamlObject.AddPair(const aName: string; const aValue: TYamlValue): TYamlObject;
+begin
+  if (not aName.IsEmpty) and (aValue <> nil) then AddPair(TYamlPair.Create(aName,aValue));
+  Result := Self;
+end;
+
+procedure TYamlObject.AddDescendant(const aDescendent: TYamlAncestor);
+begin
+  if aDescendent <> nil then fMembers.Add(aDescendent as TYamlPair);
+end;
+
+function TYamlObject.AddPair(const aName, aValue: string): TYamlObject;
+begin
+  if not aName.IsEmpty and (not aValue.IsEmpty) then AddPair(TYamlPair.Create(aName,aValue));
+  Result := Self;
+end;
+
+function TYamlObject.AddPair(const aName : string; aValue: Integer): TYamlObject;
+begin
+  AddPair(TYamlPair.Create(aName,aValue));
+  Result := Self;
+end;
+
+function TYamlObject.AddPair(const aName : string; aValue: double): TYamlObject;
+begin
+  AddPair(TYamlPair.Create(aName,aValue));
+  Result := Self;
+end;
+
+function TYamlObject.AddPair(const aName : string; aValue: boolean): TYamlObject;
+begin
+  AddPair(TYamlPair.Create(aName,aValue.ToInteger));
+  Result := Self;
+end;
+
+function TYamlObject.AsString: string;
+begin
+  Result := ToYaml;
+end;
+
+constructor TYamlObject.Create(const aData: string);
+begin
+  inherited Create;
+  fMembers := TList<TYamlPair>.Create;
+  ParseYaml(aData);
+end;
+
+constructor TYamlObject.Create;
+begin
+  inherited Create;
+  fMembers := TList<TYamlPair>.Create;
+end;
+
+destructor TYamlObject.Destroy;
+var
+  member: TYamlAncestor;
+  i: Integer;
+begin
+  if Assigned(fMembers) then
+  for i := 0 to fMembers.Count - 1 do
+  begin
+    {$IFNDEF FPC}
+    member := fMembers.List[i];
+    {$ELSE}
+    member := fMembers.Items[i];
+    {$ENDIF}
+    if Assigned(member) and member.Owned then member.Free;
+  end;
+  FreeAndNil(fMembers);
+  inherited;
+end;
+
+function TYamlObject.GetCount: Integer;
+begin
+  Result := fMembers.Count;
+end;
+
+function TYamlObject.GetEnumerator: TEnumerator;
+begin
+  Result := TEnumerator.Create(Self);
+end;
+
+class function TYamlObject.GetItemLevel(const aValue: string): Integer;
+var
+  i : Integer;
+  trimed : string;
+begin
+  trimed := aValue.Trim;
+  if trimed.IsEmpty or trimed.StartsWith('#') then Exit(99999);
+
+  for i := Low(aValue) to aValue.Length do
+  begin
+    if aValue[i] <> ' ' then Exit(i);
+  end;
+  Result := Low(aValue);
+end;
+
+function TYamlObject.GetPair(const aIndex: Integer): TYamlPair;
+begin
+  Result := fMembers[aIndex];
+end;
+
+function TYamlObject.GetPairByName(const aPairName: string): TYamlPair;
+var
+  yamlpair : TYamlPair;
+  I: Integer;
+begin
+  for i := 0 to Count - 1 do
+  begin
+    {$IFNDEF FPC}
+    yamlpair := fMembers.List[i];
+    {$ELSE}
+    yamlpair := fMembers.Items[i];
+    {$ENDIF}
+    if CompareText(yamlpair.Name,aPairName) = 0 then Exit(yamlpair);
+  end;
+  Result := nil;
+end;
+
+function TYamlObject.GetValue(const aName: string): TYamlValue;
+var
+  ymlpair: TYamlPair;
+  i: Integer;
+begin
+  for i := 0 to Count - 1 do
+  begin
+    {$IFNDEF FPC}
+    ymlpair := fMembers.List[i];
+    {$ELSE}
+    ymlpair := fMembers.Items[i];
+    {$ENDIF}
+    if CompareText(ymlpair.Name,aName) = 0 then Exit(ymlpair.Value);
+  end;
+  Result := nil;
+end;
+
+class function TYamlObject.ParseArrayValue(const aValue: string): TYamlValue;
+var
+  nint   : Int64;
+  nfloat : Double;
+  dequoted : string;
+begin
+  // Decode escape sequences for double-quoted array scalars (YAML 1.2 §7.3.1)
+  if aValue.StartsWith('"') and aValue.EndsWith('"') then
+  begin
+    // Strip the outer double-quotes manually (do NOT use AnsiDequotedStr which
+    // uses Delphi's ""–style escaping, incompatible with YAML \ escaping)
+    dequoted := DecodeYamlEscapes(Copy(aValue, 2, Length(aValue) - 2));
+    Result := TYamlString.Create(dequoted);
+    Exit;
+  end;
+  if TryStrToInt64(aValue, nint) then Result := TYamlInteger.Create(nint)
+  else if TryStrToFloat(aValue, nfloat) then Result := TYamlFloat.Create(nfloat)
+  else Result := TYamlString.Create(aValue);
+end;
+
+class function TYamlObject.DecodeYamlEscapes(const aValue: string): string;
+// Processes YAML 1.2 escape sequences (§7.3.1) that appear inside
+// double-quoted scalars.  Called after the outer quotes have been stripped
+// manually (NOT via AnsiDequotedStr, which uses Delphi's ""-style escaping).
+var
+  i   : Integer;
+  len : Integer;
+  ch  : Char;
+  hex : string;
+begin
+  Result := '';
+  i      := Low(aValue);
+  len    := High(aValue);
+  while i <= len do
+  begin
+    ch := aValue[i];
+    if (ch = '\') and (i < len) then
+    begin
+      Inc(i);
+      case aValue[i] of
+        '0'  : Result := Result + #0;          // null
+        'a'  : Result := Result + #7;          // bell
+        'b'  : Result := Result + #8;          // backspace
+        't',
+        #9   : Result := Result + #9;          // horizontal tab
+        'n'  : Result := Result + #10;         // line feed
+        'v'  : Result := Result + #11;         // vertical tab
+        'f'  : Result := Result + #12;         // form feed
+        'r'  : Result := Result + #13;         // carriage return
+        'e'  : Result := Result + #$1B;        // escape
+        ' '  : Result := Result + ' ';         // space
+        '"'  : Result := Result + '"';         // double quote
+        ''''  : Result := Result + '''';       // single quote
+        '/'  : Result := Result + '/';         // solidus (JSON compat)
+        '\' : Result := Result + '\';         // reverse solidus
+        'N'  : Result := Result + #$C2#$85;    // Unicode next line (U+0085)
+        '_'  : Result := Result + #$C2#$A0;    // non-breaking space (U+00A0)
+        'L'  : Result := Result + #$E2#$80#$A8; // line separator (U+2028)
+        'P'  : Result := Result + #$E2#$80#$A9; // paragraph separator (U+2029)
+        'x'  :  // \xXX  – 2-digit hex
+          begin
+            if i + 2 <= len then
+            begin
+              hex    := Copy(aValue, i + 1, 2);
+              Result := Result + Chr(StrToIntDef('$' + hex, Ord('?')));
+              Inc(i, 2);
+            end;
+          end;
+        'u'  :  // \uXXXX  – 4-digit Unicode
+          begin
+            if i + 4 <= len then
+            begin
+              hex    := Copy(aValue, i + 1, 4);
+              Result := Result + Chr(StrToIntDef('$' + hex, Ord('?')));
+              Inc(i, 4);
+            end;
+          end;
+        'U'  :  // \UXXXXXXXX  – 8-digit Unicode
+          begin
+            if i + 8 <= len then
+            begin
+              hex    := Copy(aValue, i + 1, 8);
+              Result := Result + Chr(StrToIntDef('$' + hex, Ord('?')));
+              Inc(i, 8);
+            end;
+          end;
+      else
+        // Unknown escape: pass through literally (backslash + char)
+        Result := Result + '\' + aValue[i];
+      end;
+    end
+    else
+      Result := Result + ch;
+    Inc(i);
+  end;
+end;
+
+class function TYamlObject.ParsePairName(const aPair: string): string;
+begin
+  Result := Copy(aPair,0,aPair.IndexOf(':'));
+end;
+
+class function TYamlObject.ParsePairValue(const aPair: string): string;
+var
+  raw : string;
+begin
+<<<<<<< HEAD
+  Result := Copy(aPair,aPair.IndexOf(':')+2,aPair.Length).Trim;
+  if Result.StartsWith('"') then
+    Result := AnsiDequotedStr(Result, '"')
+  else
+  if Result.StartsWith('''') then
+    Result := AnsiDequotedStr(Result, '''');
+=======
+  raw := Copy(aPair, aPair.IndexOf(':') + 2, aPair.Length).Trim;
+  // Apply YAML escape sequences only for double-quoted scalars (YAML 1.2 §7.3.1)
+  if raw.StartsWith('"') and raw.EndsWith('"') then
+    // Strip the outer double-quotes manually (do NOT use AnsiDequotedStr which
+    // uses Delphi's ""–style escaping, incompatible with YAML \ escaping)
+    Result := DecodeYamlEscapes(Copy(raw, 2, Length(raw) - 2))
+  else
+    Result := AnsiDequotedStr(raw, '"');
+>>>>>>> master
+end;
+
+class function TYamlObject.ParseValue(yaml : TList<string>; var vIndex : Integer): TYamlAncestor;
+type
+  TYamlType = (ytObject, ytArray, ytScalarArray, ytScalar);
+var
+  name : string;
+  value : string;
+  yvalue : TYamlAncestor;
+  level : Integer;
+  nextlevel : Integer;
+  aitem : string;
+  yamlType : TYamlType;
+begin
+  Result := nil;
+  level := 0;
+  while yaml.Count > vIndex do
+  begin
+    value := yaml[vIndex].Trim;
+    //if value.StartsWith('#') then Exit(TYamlComment.Create(value));
+    if (value.IsEmpty) or (value.StartsWith('#')) or (value.StartsWith(#9)) then
+      Exit(nil);
+
+<<<<<<< HEAD
+    name := ParsePairName(value);
+    if value.StartsWith('- ') then
+    begin
+      if name.IsEmpty then
+        Exit(ParseArrayValue(value.Substring(2).TrimLeft));
+      name := name.Substring(2).TrimLeft;
+      yaml[vIndex] := StringReplace(yaml[vIndex],'- ','  ',[]);
+      yamlType := ytObject;
+      Dec(vIndex);
+    end
+    else
+    if value.EndsWith(':') then
+    begin
+      if yaml[vIndex + 1].TrimLeft.StartsWith('-') then
+        yamlType := ytArray
+      else
+        yamlType := ytObject;
+    end
+    else
+    if value.IndexOf(':') < value.Length then
+    begin
+      value := ParsePairValue(value);
+      if (value.StartsWith('[')) and (value.EndsWith(']')) then
+        yamlType := ytScalarArray
+      else
+        yamlType := ytScalar;
+    end
+    else
+      yamlType := TYamlType.ytScalar;
+=======
+    if value.IsEmpty or value.StartsWith('#') or value.StartsWith(#9) then Exit(nil);
+
+    if value.StartsWith('-') then
+    begin
+      // strip the leading dash and whitespace
+      var itemValue := value.Substring(1).Trim;
+      if itemValue = '' then
+      begin
+        // dash only line: next lines are an object block
+        yaml[vIndex] := StringReplace(yaml[vIndex],'-','',[]).TrimLeft;
+        yamlType := ytObject;
+        Dec(vIndex);
+      end
+      else if itemValue.IndexOf(':') >= 0 then
+      begin
+        // dash followed by key:value -> treat as object block
+        yaml[vIndex] := StringReplace(yaml[vIndex],'-','',[]).TrimLeft;
+        yamlType := ytObject;
+        Dec(vIndex);
+      end
+      else
+      begin
+        // plain scalar array item: - reading, - gaming, etc.
+        Exit(ParseArrayValue(itemValue));
+      end;
+    end
+    else
+    begin
+      name := ParsePairName(value);
+      if name.IsEmpty then Exit(nil)
+      else if value.EndsWith(':') then
+      begin
+        if yaml[vIndex + 1].TrimLeft.StartsWith('-') then yamlType := ytArray
+          else yamlType := ytObject;
+      end
+      else if value.IndexOf(':') < value.Length then
+      begin
+        value := ParsePairValue(value);
+        if (value.StartsWith('[')) and (value.EndsWith(']')) then yamlType := ytScalarArray
+          else yamlType := ytScalar;
+      end
+      else yamlType := TYamlType.ytScalar;
+    end;
+>>>>>>> master
+
+    case yamlType of
+      ytArray : //is array
+        begin
+          yvalue := TYamlArray.Create;
+          level := GetItemLevel(yaml[vIndex + 1]);
+          repeat
+            Inc(vIndex);
+            yvalue.AddDescendant(ParseValue(yaml,vIndex));
+          until (yvalue = nil) or (vIndex >= yaml.Count - 1) or (GetItemLevel(yaml[vIndex + 1]) < level);
+          Exit(TYamlPair.Create(name,TYamlValue(yvalue)));
+        end;
+      ytObject : //is object
+        begin
+          yvalue := TYamlObject.Create;
+          repeat
+            Inc(vIndex);
+            nextlevel := GetItemLevel(yaml[vIndex]);
+            if nextlevel <> 99999 then level := nextlevel;
+
+            yvalue.AddDescendant(ParseValue(yaml,vIndex));
+            //level := GetItemLevel(yaml[vIndex]);
+            //var level2 := GetItemLevel(yaml[offset + 1]);
+          until (yvalue = nil) or (vIndex >= yaml.Count - 1) or (GetItemLevel(yaml[vIndex + 1]) < level);
+          Exit(TYamlPair.Create(name,TYamlValue(yvalue)));
+        end;
+      ytScalarArray : //is scalar array
+        begin
+          yvalue := TYamlArray.Create(True);
+          value := StringReplace(Copy(value,2,Value.Length-2),', ',#9,[rfReplaceAll]);
+          for aitem in value.Split([#9]) do
+          begin
+            yvalue.AddDescendant(ParseArrayValue(aitem));
+          end;
+          Exit(TYamlPair.Create(name,TYamlValue(yvalue)));
+        end;
+      else
+        Exit(TYamlPair.Create(name,value)); //is scalar
+    end;
+    Inc(vIndex);
+  end;
+end;
+
+procedure TYamlObject.ParseYaml(const aData: string);
+var
+  yaml : TList<string>;
+  line : string;
+  data : string;
+  yamlvalue : TYamlAncestor;
+  vIndex : Integer;
+begin
+  yaml := TList<string>.Create;
+  try
+    vIndex := 0;
+    //normalize tabs
+    data := StringReplace(aData,#9,Spaces(NUM_INDENT),[rfReplaceAll]);
+    {$IFDEF MSWINDOWS}
+    for line in data.Split([#13]) do yaml.Add(StringReplace(line,#10,'',[rfReplaceAll]));
+    {$ELSE}
+    for line in data.Split([#10]) do yaml.Add(StringReplace(line,#13,'',[rfReplaceAll]));
+    {$ENDIF}
+    while yaml.Count > vIndex do
+    begin
+      yamlvalue := ParseValue(yaml,vIndex);
+      if yamlvalue <> nil then AddDescendant(yamlvalue);
+      Inc(vIndex);
+    end;
+  finally
+    yaml.Free;
+  end;
+end;
+
+class function TYamlObject.ParseYamlValue(const aData : string) : TYamlAncestor;
+var
+  yaml : TList<string>;
+  line, sub_line : string;
+  data : string;
+  yamlvalue : TYamlAncestor;
+  vIndex : Integer;
+begin
+  yaml := TList<string>.Create;
+  try
+    vIndex := 0;
+    //normalize tabs
+    data := StringReplace(aData,#9,Spaces(NUM_INDENT),[rfReplaceAll]);
+
+    {$IFDEF MSWINDOWS}
+    for line in data.Split([#13]) do yaml.Add(StringReplace(line,#10,'',[rfReplaceAll]));
+    {$ELSE}
+    for line in data.Split([#10]) do yaml.Add(StringReplace(line,#13,'',[rfReplaceAll]));
+    {$ENDIF}
+
+    if yaml[0].TrimLeft.StartsWith('- ') then
+      Result := TYamlArray.Create
+    else
+      Result := TYamlObject.Create;
+    while yaml.Count > vIndex do
+    begin
+      yamlvalue := ParseValue(yaml,vIndex);
+      if yamlvalue <> nil then
+        Result.AddDescendant(yamlvalue);
+      Inc(vIndex);
+    end;
+  finally
+    yaml.Free;
+  end;
+end;
+
+function TYamlObject.RemovePair(const aPairName: string): TYamlPair;
+var
+  yamlpair: TYamlPair;
+  i: Integer;
+begin
+  for i := 0 to Count - 1 do
+  begin
+    {$IFNDEF FPC}
+    yamlpair := TYamlPair(FMembers.List[i]);
+    {$ELSE}
+    yamlpair := TYamlPair(fMembers.Items[i]);
+    {$ENDIF}
+    if CompareText(yamlpair.Name,aPairName) = 0 then
+    begin
+      fMembers.Remove(yamlpair);
+      Exit(yamlpair);
+    end;
+  end;
+  Result := nil;
+end;
+
+function TYamlObject.ToYaml: string;
+begin
+  Result := ParseToYaml(0);
+end;
+
+function TYamlObject.ParseToYaml(aIndent : Integer) : string;
+const
+  SPECIAL_CHARS: array[1..19] of Char = (':', '{', '}', '[', ']', ',', '&', '*', '#', '?', '|', '-', '<', '>', '=', '!', '%', '@', '\');
+var
+  i : Integer;
+  member : TYamlPair;
+  yaml : TYamlWriter;
+  yvalue : TYamlAncestor;
+  indent : string;
+  scalar : string;
+  rarray : string;
+begin
+  yaml := TYamlWriter.Create;
+  try
+    indent := StringOfChar(' ',aIndent);
+    for i := 0 to fMembers.Count - 1 do
+    begin
+      member := fMembers[i];
+      if member = nil then continue;
+
+      yvalue := member.Value;
+      if (yvalue.IsScalar) or (yvalue is TYamlNull) then
+      begin
+        if yvalue is TYamlComment then yaml.Writeln(Format('#%s%s',[indent,TYamlComment(member.Value).AsString]))
+        else
+        begin
+          if yvalue is TYamlNull then scalar := 'null'
+          else if (yvalue is TYamlFloat) or (yvalue is TYamlBoolean) then scalar := member.Value.AsString
+            else scalar := member.Value.Value.AsString;
+          if scalar.IsEmpty then scalar := '""';
+          if scalar.IndexOfAny(SPECIAL_CHARS) > -1 then
+            scalar := AnsiQuotedStr(scalar, '"');
+          yaml.Writeln(Format('%s%s: %s',[indent,member.Name,scalar]));
+          if (i < fMembers.Count - 1) and (fMembers[i+1].Value is TYamlComment) then yaml.Writeln('');
+        end;
+      end
+      else if (yvalue is TYamlObject) then
+      begin
+        yaml.Writeln(Format('%s%s:',[indent,member.Name]));
+        yaml.Write((yvalue as TYamlObject).ParseToYaml(aIndent + NUM_INDENT));
+        //if aIndent = 0 then yaml.Writeln('');
+      end
+      else if (yvalue is TYamlArray) then
+      begin
+        rarray := (yvalue as TYamlArray).ParseToYaml(aIndent + NUM_INDENT);
+        if (yvalue as TYamlArray).IsScalarArray then yaml.Writeln(Format('%s%s: %s',[indent,member.Name,rarray]))
+        else
+        begin
+          yaml.Writeln(Format('%s%s:',[indent,member.Name]));
+          yaml.Write(rarray);
+        end;
+      end;
+    end;
+    Result := yaml.Text;
+  finally
+    yaml.Free;
+  end;
+end;
+
+{ TYamlString }
+
+constructor TYamlString.Create(const aValue: string);
+begin
+  inherited Create;
+  fValue := aValue;
+  fIsNull := False;
+end;
+
+constructor TYamlString.Create;
+begin
+  inherited Create;
+  fIsNull := True;
+end;
+
+function TYamlString.IsNull: Boolean;
+begin
+  Result := fIsNull;
+end;
+
+function TYamlString.IsScalar: Boolean;
+begin
+  Result := True;
+end;
+
+function TYamlString.AsString: string;
+begin
+  Result := fValue;
+end;
+
+function TYamlString.Value: TFlexValue;
+begin
+  Result := fValue;
+end;
+
+{ TYamlInteger }
+
+constructor TYamlInteger.Create(const aValue: Integer);
+begin
+  inherited Create;
+  fValue := aValue;
+  fIsNull := False;
+end;
+
+constructor TYamlInteger.Create;
+begin
+  inherited Create;
+  fIsNull := True;
+end;
+
+function TYamlInteger.IsNull: Boolean;
+begin
+  Result := fIsNull;
+end;
+
+function TYamlInteger.IsScalar: Boolean;
+begin
+  Result := True;
+end;
+
+function TYamlInteger.AsString: string;
+begin
+  Result := IntToStr(fValue);
+end;
+
+function TYamlInteger.Value: TFlexValue;
+begin
+  Result := fValue;
+end;
+
+{ TYamlFloat }
+
+constructor TYamlFloat.Create(const aValue: Double);
+begin
+  inherited Create;
+  fValue := aValue;
+  fIsNull := False;
+end;
+
+constructor TYamlFloat.Create;
+begin
+  inherited Create;
+  fIsNull := True;
+end;
+
+function TYamlFloat.IsNull: Boolean;
+begin
+  Result := fIsNull;
+end;
+
+function TYamlFloat.IsScalar: Boolean;
+begin
+  Result := True;
+end;
+
+function TYamlFloat.AsString: string;
+begin
+  Result := FloatToStr(fValue);
+end;
+
+function TYamlFloat.Value: TFlexValue;
+begin
+  Result := fValue;
+end;
+
+{ TYamlPair }
+
+constructor TYamlPair.Create(const aName: string; const aValue: TYamlValue);
+begin
+  inherited Create;
+  fName := aName;
+  fValue := aValue;
+end;
+
+constructor TYamlPair.Create(const aName, aValue: string);
+begin
+  inherited Create;
+  fName := aName;
+  fValue := TYamlString.Create(aValue);
+end;
+
+constructor TYamlPair.Create(const aName: string; const aValue: Double);
+begin
+  inherited Create;
+  fName := aName;
+  fValue := TYamlFloat.Create(aValue);
+end;
+
+constructor TYamlPair.Create(const aName: string; const aValue: Integer);
+begin
+  inherited Create;
+  fName := aName;
+  fValue := TYamlInteger.Create(aValue);
+end;
+
+destructor TYamlPair.Destroy;
+begin
+  if (fValue <> nil) and fValue.Owned then FreeAndNil(fValue);
+  inherited Destroy;
+end;
+
+function TYamlPair.ToYaml: string;
+begin
+  if fValue = nil then Exit('null');
+
+  if fValue is TYamlObject then
+    Result := TYamlObject(fValue).ToYaml
+  else
+  if fValue is TYamlArray then
+    Result := TYamlArray(fValue).ParseToYaml(0)
+  else
+    Result := Format('%s: %s',[fName,fValue.Value.AsString]);
+end;
+
+procedure TYamlPair.AddDescendant(const aDescendent: TYamlAncestor);
+begin
+  if fName = '' then
+    fName := TYamlString(aDescendent).Value
+  else if fValue = nil then
+    fValue:= TYamlValue(aDescendent)
+  else inherited AddDescendant(aDescendent);
+end;
+
+{ TYamlObject.TEnumerator }
+
+constructor TYamlObject.TEnumerator.Create(const aObject: TYamlObject);
+begin
+  inherited Create;
+  fIndex := -1;
+  fObject := aObject;
+end;
+
+function TYamlObject.TEnumerator.GetCurrent: TYamlPair;
+begin
+  {$IFNDEF FPC}
+  Result := fObject.fMembers.List[fIndex];
+  {$ELSE}
+  Result := fObject.fMembers.Items[fIndex];
+  {$ENDIF}
+end;
+
+function TYamlObject.TEnumerator.MoveNext: Boolean;
+begin
+  Inc(fIndex);
+  Result := fIndex < fObject.Count;
+end;
+
+
+{ TYamlValue }
+
+function TYamlValue.Value: TFlexValue;
+begin
+  Result := '';
+end;
+
+{ TYamlArray.TEnumerator }
+
+constructor TYamlArray.TEnumerator.Create(const aArray: TYamlArray);
+begin
+  inherited Create;
+  fIndex := -1;
+  fArray := aArray;
+end;
+
+function TYamlArray.TEnumerator.GetCurrent: TYamlValue;
+begin
+  {$IFNDEF FPC}
+  Result := fArray.fElements.List[fIndex];
+  {$ELSE}
+  Result := fArray.fElements.Items[fIndex];
+  {$ENDIF}
+end;
+
+function TYamlArray.TEnumerator.MoveNext: Boolean;
+begin
+  Inc(fIndex);
+  Result := fIndex < fArray.Count;
+end;
+
+{ TYamlArray }
+
+procedure TYamlArray.AddDescendant(const aDescendant: TYamlAncestor);
+begin
+<<<<<<< HEAD
+  if aDescendant is TYamlValue then
+    fElements.Add(aDescendant as TYamlValue)
+  else
+  if aDescendant is TYamlPair then
+    fElements.Add((aDescendant as TYamlPair).Value)
+end;
+
+constructor TYamlArray.Create(const aIsScalarArray: Boolean);
+begin
+  inherited Create;
+  fIsScalarArray := aIsScalarArray;
+  fElements := TList<TYamlValue>.Create;
+end;
+
+constructor TYamlArray.Create(const aIsScalarArray: Boolean; const aFirstElem: TYamlValue);
+begin
+  Create(aIsScalarArray);
+  AddElement(aFirstElem);
+=======
+  if aDescendant <> nil then fElements.Add(TYamlValue(aDescendant));
+>>>>>>> master
+end;
+
+constructor TYamlArray.Create;
+begin
+<<<<<<< HEAD
+  Create(False);
+=======
+  inherited Create;
+  fElements := TList<TYamlValue>.Create;
+end;
+
+constructor TYamlArray.Create(const aFirstElem: TYamlValue);
+begin
+  inherited Create;
+  fElements := TList<TYamlValue>.Create;
+  AddElement(aFirstElem);
+>>>>>>> master
+end;
+
+procedure TYamlArray.AddElement(const aElement: TYamlValue);
+begin
+  if aElement <> nil then AddDescendant(aElement);
+end;
+
+function TYamlArray.AsString: string;
+var
+  first : Boolean;
+  element : TYamlValue;
+begin
+  first := True;
+  for element in fElements do
+  begin
+    if first then Result := Result + element.AsString
+      else  Result := Result + ',' + element.AsString;
+  end;
+  Result := Format('[%s]',[Result]);
+end;
+
+destructor TYamlArray.Destroy;
+var
+  element: TYamlAncestor;
+  i: Integer;
+begin
+  if Assigned(fElements) then
+  for i := 0 to fElements.Count - 1 do
+  begin
+    element := fElements[i];
+    if Assigned(element) and (element.Owned) then element.Free;
+  end;
+  if Assigned(fElements) then FreeAndNil(fElements);
+  inherited Destroy;
+end;
+
+function TYamlArray.GetCount: Integer;
+begin
+  Result := fElements.Count;
+end;
+
+function TYamlArray.GetEnumerator: TEnumerator;
+begin
+  Result := TEnumerator.Create(Self);
+end;
+
+function TYamlArray.GetValue(const aIndex: Integer): TYamlValue;
+begin
+  Result := fElements[aIndex];
+end;
+
+function TYamlArray.ParseToYaml(aIndent : Integer) : string;
+var
+  element : TYamlValue;
+  yaml : TYamlWriter;
+  yvalue : TYamlAncestor;
+  indent : string;
+begin
+  Result := '';
+  yvalue := nil;
+  yaml := TYamlWriter.Create;
+  try
+    indent := StringOfChar(' ',aIndent);
+    if fElements.Count = 0 then
+    begin
+      if IsScalarArray then
+        Exit('[]')
+      else
+        Exit('');
+    end;
+    for element in fElements do
+    begin
+      yvalue := element;
+      if yvalue is TYamlPair then yvalue := TYamlPair(yvalue).value;
+
+      if yvalue.IsScalar then
+      begin
+        if IsScalarArray then
+        begin
+          {$IFNDEF FPC}
+          if Result = '' then Result := element.AsString
+            else Result := Result + ', ' + element.AsString;
+          {$ELSE}
+          if Result = '' then Result := TYamlPair(element).Value.AsString
+            else Result := Result + ', ' + TYamlPair(element).Value.AsString;
+          {$ENDIF}
+        end
+        else
+        begin
+          yaml.Write(Format('%s- %s',[indent, element.AsString]));
+          yaml.Writeln('');
+        end;
+      end
+      else if (yvalue is TYamlObject) then
+      begin
+        yaml.Write(indent + '- ' + (yvalue as TYamlObject).ParseToYaml(aIndent + NUM_INDENT).TrimLeft);
+      end
+      else if (yvalue is TYamlArray) then
+      begin
+        yaml.Write(Format('%s%s',[indent,(yvalue as TYamlArray).ParseToYaml(aIndent + NUM_INDENT)]))
+      end;
+      //yaml.Writeln('');
+    end;
+    if IsScalarArray then
+      Result := '[' + Result + ']'
+    else
+      Result := yaml.Text;
+  finally
+    yaml.Free;
+  end;
+end;
+
+{ TYamlWriter }
+
+procedure TYamlWriter.Write(const aValue: string);
+begin
+  fData := fData + aValue;
+end;
+
+procedure TYamlWriter.Writeln(const aValue: string);
+begin
+  fData := fData + aValue + CRLF;
+end;
+
+constructor TYamlWriter.Create;
+begin
+  fData := '';
+end;
+
+{ TYamlNull }
+
+function TYamlNull.IsNull: Boolean;
+begin
+  Result := True;
+end;
+
+function TYamlNull.AsString: string;
+begin
+  Result := 'null';
+end;
+
+function TYamlNull.Value: TFlexValue;
+begin
+  Result := nil;
+end;
+
+{ TYamlBoolean }
+
+constructor TYamlBoolean.Create;
+begin
+  inherited Create;
+  fIsNull := True;
+end;
+
+constructor TYamlBoolean.Create(const aValue: Boolean);
+begin
+  inherited Create;
+  fIsNull := False;
+  fValue := aValue;
+end;
+
+function TYamlBoolean.IsNull: Boolean;
+begin
+  Result := fIsNull;
+end;
+
+function TYamlBoolean.IsScalar: Boolean;
+begin
+  Result := True;
+end;
+
+function TYamlBoolean.AsString: string;
+begin
+  Result := BoolToStr(fValue,True).ToLower;
+end;
+
+function TYamlBoolean.Value: TFlexValue;
+begin
+  Result := fValue;
+end;
+
+{ TYamlComment }
+
+function TYamlComment.AsString: string;
+begin
+  Result := fValue;
+end;
+
+constructor TYamlComment.Create;
+begin
+  inherited Create;
+  fIsNull := True;
+end;
+
+constructor TYamlComment.Create(const aComment: string);
+begin
+  inherited Create;
+  fIsNull := False;
+  fValue := aComment;
+end;
+
+function TYamlComment.IsNull: Boolean;
+begin
+  Result := fIsNull;
+end;
+
+function TYamlComment.IsScalar: Boolean;
+begin
+  Result := True;
+end;
+
+function TYamlComment.Value: TFlexValue;
+begin
+  Result := fValue;
+end;
+
+end.
